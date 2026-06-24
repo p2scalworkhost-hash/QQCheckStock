@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QQ Dessert Order Aggregator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 min-h-screen p-4 md:p-8 relative">
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay"
+        class="fixed inset-0 bg-gray-900/60 z-50 hidden flex-col items-center justify-center backdrop-blur-sm transition-opacity">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-white mb-4"></div>
+        <p class="text-white font-semibold text-xl tracking-wide">Processing Files...</p>
+        <p class="text-gray-300 text-sm mt-2">Please wait while we aggregate the data</p>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-3 pointer-events-none"></div>
+
+    <div class="max-w-6xl mx-auto">
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl font-bold text-gray-800">QQ Dessert Order Aggregator</h1>
+            <p class="text-gray-600">Import Excel files to calculate total orders per zone</p>
+        </header>
+
+        <div class="bg-white rounded-xl shadow-sm p-6 mb-8 border border-gray-100">
+            <div class="flex items-center justify-center w-full">
+                <label id="drop-zone"
+                    class="flex flex-col items-center justify-center w-full h-48 border-2 border-blue-300 border-dashed rounded-lg cursor-pointer bg-blue-50/50 hover:bg-blue-50 transition-colors">
+                    <div class="flex flex-col items-center justify-center pt-5 pb-6 pointer-events-none">
+                        <svg class="w-10 h-10 mb-4 text-blue-500" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"
+                            fill="none" viewBox="0 0 20 16">
+                            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2" />
+                        </svg>
+                        <p class="mb-2 text-sm text-blue-700"><span class="font-bold">Click to upload</span> or drag and
+                            drop <span class="font-bold underline">Files</span> here</p>
+                        <p class="text-xs text-blue-500">Excel files (.xlsx, .xls, .csv)</p>
+                    </div>
+                    <input id="file-input" type="file" class="hidden" multiple accept=".xlsx,.xls,.csv" />
+                </label>
+            </div>
+            <div id="file-list" class="mt-4 text-sm text-gray-600 font-mono max-h-32 overflow-y-auto"></div>
+            <div class="flex gap-4 mt-4">
+                <button id="calculate-btn"
+                    class="w-full bg-blue-600 text-white font-semibold py-3 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed shadow-sm">
+                    Calculate Aggregation
+                </button>
+                <button id="export-report-btn"
+                    class="hidden w-1/3 bg-green-600 text-white font-semibold py-3 rounded-lg hover:bg-green-700 transition-colors shadow-sm">
+                    Export Full Report
+                </button>
+            </div>
+        </div>
+
+        <div id="results" class="hidden space-y-8">
+
+            <!-- Stat Bar -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div
+                    class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-gray-800 hover:shadow-md transition-shadow">
+                    <p class="text-sm text-gray-500 font-medium uppercase tracking-wider mb-1">ยอดรวม (ชิ้น)</p>
+                    <p id="stat-total" class="text-3xl font-bold text-gray-800">0</p>
+                </div>
+                <div
+                    class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-blue-500 hover:shadow-md transition-shadow">
+                    <p class="text-sm text-gray-500 font-medium uppercase tracking-wider mb-1">Zone A Qty</p>
+                    <p id="stat-zone-a" class="text-3xl font-bold text-blue-800">0</p>
+                </div>
+                <div
+                    class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-green-500 hover:shadow-md transition-shadow">
+                    <p class="text-sm text-gray-500 font-medium uppercase tracking-wider mb-1">Zone B Qty</p>
+                    <p id="stat-zone-b" class="text-3xl font-bold text-green-800">0</p>
+                </div>
+                <div
+                    class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-purple-500 hover:shadow-md transition-shadow">
+                    <p class="text-sm text-gray-500 font-medium uppercase tracking-wider mb-1">รายการทั้งหมด</p>
+                    <p id="stat-sku" class="text-3xl font-bold text-purple-800">0</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Zone A -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="bg-blue-50 px-6 py-4 border-b border-blue-100 flex justify-between items-center">
+                        <div>
+                            <h2 class="text-lg font-bold text-blue-800">Zone A</h2>
+                            <p class="text-xs text-blue-600">THL, COM, CTW, SCS, KPW, CTT</p>
+                        </div>
+                    </div>
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-50 text-gray-700 uppercase font-medium border-b border-gray-200">
+                            <tr>
+                                <th class="px-4 py-3 w-12 text-center text-gray-400">#</th>
+                                <th class="px-6 py-3">Menu</th>
+                                <th class="px-6 py-3 text-right">Qty</th>
+                            </tr>
+                        </thead>
+                        <tbody id="zone-a-body" class="divide-y divide-gray-100"></tbody>
+                    </table>
+                </div>
+
+                <!-- Zone B -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="bg-green-50 px-6 py-4 border-b border-green-100 flex justify-between items-center">
+                        <div>
+                            <h2 class="text-lg font-bold text-green-800">Zone B</h2>
+                            <p class="text-xs text-green-600">LPO, RMN, EVL, CPK, BTV, CWN, FNI, CWV</p>
+                        </div>
+                    </div>
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-50 text-gray-700 uppercase font-medium border-b border-gray-200">
+                            <tr>
+                                <th class="px-4 py-3 w-12 text-center text-gray-400">#</th>
+                                <th class="px-6 py-3">Menu</th>
+                                <th class="px-6 py-3 text-right">Qty</th>
+                            </tr>
+                        </thead>
+                        <tbody id="zone-b-body" class="divide-y divide-gray-100"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Grand Total -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div class="bg-gray-800 px-6 py-4 border-b border-gray-700 flex justify-between items-center">
+                    <h2 class="text-lg font-bold text-white">Grand Total (All Branches)</h2>
+                </div>
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-gray-50 text-gray-700 uppercase font-medium border-b border-gray-200">
+                        <tr>
+                            <th class="px-4 py-3 w-12 text-center text-gray-400">#</th>
+                            <th class="px-6 py-3">Menu</th>
+                            <th class="px-6 py-3 text-right w-1/3">Qty</th>
+                        </tr>
+                    </thead>
+                    <tbody id="total-body" class="divide-y divide-gray-100"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const fileList = document.getElementById('file-list');
+        const calculateBtn = document.getElementById('calculate-btn');
+        const exportReportBtn = document.getElementById('export-report-btn');
+        const resultsDiv = document.getElementById('results');
+        const loadingOverlay = document.getElementById('loading-overlay');
+
+        let selectedFiles = [];
+        let globalRawData = [];
+
+        const ZONE_MAPPING = {
+            'THONG LO': 'THL', 'THL': 'THL',
+            'THE COMMONS SALADAENG': 'COM', 'COM': 'COM',
+            'CENTRAL WORLD': 'CTW', 'CTW': 'CTW',
+            'SEACON SQUARE': 'SCS', 'SCS': 'SCS',
+            'KING POWER': 'KPW', 'KPW': 'KPW',
+            'CENTRAL RAMA3': 'CTT', 'CTT': 'CTT',
+
+            'CENTRAL LAPRAO': 'LPO', 'LPO': 'LPO',
+            'CENTRAL RAMA9': 'RMN', 'RMN': 'RMN',
+            'CENTRAL EASTVILLE': 'EVL', 'EVL': 'EVL',
+            'CENTRAL PINKLAO': 'CPK', 'CPK': 'CPK',
+            'BOONTHAVORN': 'BTV', 'BTV': 'BTV',
+            'CENTRAL CHAENGWATTANA': 'CWN', 'CWN': 'CWN',
+            'FASHION ISLAND': 'FNI', 'FNI': 'FNI',
+            'CENTRAL WESTVILLE': 'CWV', 'CWV': 'CWV'
+        };
+
+        const ZONES = {
+            'A': ['THL', 'COM', 'CTW', 'SCS', 'KPW', 'CTT'],
+            'B': ['LPO', 'RMN', 'EVL', 'CPK', 'BTV', 'CWN', 'FNI', 'CWV']
+        };
+
+        // --- Toast Logic ---
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+
+            const bgColor = type === 'success' ? 'bg-green-600' : 'bg-red-600';
+            const icon = type === 'success'
+                ? `<svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`
+                : `<svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>`;
+
+            toast.className = `flex items-center px-4 py-3 rounded-lg shadow-lg text-white font-medium transform transition-all duration-300 translate-y-10 opacity-0 ${bgColor}`;
+            toast.innerHTML = `${icon} <span>${message}</span>`;
+
+            container.appendChild(toast);
+
+            // Animate in
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-10', 'opacity-0');
+            });
+
+            // Remove after 3 seconds
+            setTimeout(() => {
+                toast.classList.add('translate-y-10', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // --- Drag and Drop Logic ---
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
+        ['dragenter', 'dragover'].forEach(eventName => { dropZone.addEventListener(eventName, () => dropZone.classList.add('border-blue-500', 'bg-blue-100'), false); });
+        ['dragleave', 'drop'].forEach(eventName => { dropZone.addEventListener(eventName, () => dropZone.classList.remove('border-blue-500', 'bg-blue-100'), false); });
+
+        dropZone.addEventListener('drop', handleDrop, false);
+        fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+        function handleDrop(e) { handleFiles(e.dataTransfer.files); }
+
+        function handleFiles(files) {
+            const fileArray = Array.from(files);
+            const validFiles = fileArray.filter(file => file.name.match(/\.(xlsx|xls|csv)$/i) && !file.name.startsWith('~$'));
+            const newFiles = validFiles.filter(newFile => !selectedFiles.some(existingFile => existingFile.name === newFile.name && existingFile.size === newFile.size));
+            selectedFiles = [...selectedFiles, ...newFiles];
+            updateFileListUI();
+        }
+
+        function updateFileListUI() {
+            if (selectedFiles.length === 0) {
+                fileList.innerHTML = '<span class="text-red-500">No valid Excel files selected.</span>';
+                return;
+            }
+            fileList.innerHTML = `<div class="flex justify-between items-center mb-2"><p class="font-bold text-gray-800">Ready to process ${selectedFiles.length} files:</p><button onclick="clearFiles()" class="text-xs text-red-500 hover:bg-red-50 hover:text-red-600 px-2 py-1 rounded transition">Clear List</button></div>` +
+                selectedFiles.map(f => `<div class="truncate text-gray-500">📄 ${f.name}</div>`).join('');
+        }
+
+        window.clearFiles = function () {
+            selectedFiles = [];
+            globalRawData = [];
+            fileInput.value = '';
+            updateFileListUI();
+            resultsDiv.classList.add('hidden');
+            exportReportBtn.classList.add('hidden');
+            showToast('File list cleared', 'success');
+        };
+
+        // --- Processing Logic ---
+
+        calculateBtn.addEventListener('click', async () => {
+            if (selectedFiles.length === 0) {
+                showToast('Please select files first', 'error');
+                return;
+            }
+
+            const aggregation = { 'A': {}, 'B': {}, 'TOTAL': {} };
+            globalRawData = [];
+            calculateBtn.disabled = true;
+
+            // Show overlay to block UI and prevent double clicks
+            loadingOverlay.classList.remove('hidden');
+            loadingOverlay.style.display = 'flex';
+
+            // Small delay to let browser render the overlay before blocking thread
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            try {
+                for (let i = 0; i < selectedFiles.length; i++) {
+                    const data = await readFile(selectedFiles[i]);
+                    globalRawData = globalRawData.concat(data);
+                    processData(data, aggregation);
+                }
+
+                renderTable('zone-a-body', aggregation.A, '#3b82f6'); // blue-500
+                renderTable('zone-b-body', aggregation.B, '#22c55e'); // green-500
+                renderTable('total-body', aggregation.TOTAL, '#1f2937'); // gray-800
+
+                // Update Stat Bar
+                let totalQty = 0, zoneAQty = 0, zoneBQty = 0;
+                Object.values(aggregation.TOTAL).forEach(i => totalQty += i.qty);
+                Object.values(aggregation.A).forEach(i => zoneAQty += i.qty);
+                Object.values(aggregation.B).forEach(i => zoneBQty += i.qty);
+
+                document.getElementById('stat-total').innerText = totalQty.toLocaleString();
+                document.getElementById('stat-zone-a').innerText = zoneAQty.toLocaleString();
+                document.getElementById('stat-zone-b').innerText = zoneBQty.toLocaleString();
+                document.getElementById('stat-sku').innerText = Object.keys(aggregation.TOTAL).length.toLocaleString();
+
+                resultsDiv.classList.remove('hidden');
+                exportReportBtn.classList.remove('hidden');
+
+                showToast(`Successfully processed ${selectedFiles.length} files!`, 'success');
+
+                // Smooth scroll after rendering
+                setTimeout(() => { resultsDiv.scrollIntoView({ behavior: 'smooth' }); }, 100);
+
+            } catch (error) {
+                console.error(error);
+                showToast('Error: ' + error.message, 'error');
+            } finally {
+                calculateBtn.disabled = false;
+                loadingOverlay.classList.add('hidden');
+                loadingOverlay.style.display = 'none';
+            }
+        });
+
+        function readFile(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const sheetName = workbook.SheetNames[0];
+                        const json = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
+                        resolve(json);
+                    } catch (err) { reject(err); }
+                };
+                reader.onerror = reject;
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        function processData(rows, agg) {
+            rows.forEach(row => {
+                const itemCode = row['ItemCode'];
+                const itemDesc = row['ItemDesc'];
+                const qty = parseFloat(row['Qty']) || 0;
+                let rawBranch = (row['To'] || '').toString().trim().toUpperCase();
+
+                if (!itemCode || qty === 0) return;
+
+                let branchCode = 'UNKNOWN';
+                let zone = 'Unknown';
+
+                for (const [key, code] of Object.entries(ZONE_MAPPING)) {
+                    if (rawBranch.includes(key)) {
+                        branchCode = code;
+                        zone = ZONES.A.includes(code) ? 'A' : 'B';
+                        break;
+                    }
+                }
+
+                if (!agg['TOTAL'][itemCode]) { agg['TOTAL'][itemCode] = { desc: itemDesc, qty: 0 }; }
+                agg['TOTAL'][itemCode].qty += qty;
+
+                if (zone !== 'Unknown') {
+                    if (!agg[zone][itemCode]) { agg[zone][itemCode] = { desc: itemDesc, qty: 0 }; }
+                    agg[zone][itemCode].qty += qty;
+                }
+            });
+        }
+
+        function renderTable(elementId, data, barColor) {
+            const body = document.getElementById(elementId);
+            body.innerHTML = '';
+
+            const sortedItems = Object.values(data).sort((a, b) => b.qty - a.qty);
+
+            if (sortedItems.length === 0) {
+                body.innerHTML = '<tr><td colspan="3" class="px-6 py-6 text-center text-gray-400 italic">No data found.</td></tr>';
+                return;
+            }
+
+            const maxQty = sortedItems[0].qty; // Highest qty for proportional bar
+
+            sortedItems.forEach((item, index) => {
+                const percent = maxQty > 0 ? (item.qty / maxQty) * 100 : 0;
+                const row = document.createElement('tr');
+                row.className = "hover:bg-gray-50 transition-colors";
+                row.innerHTML = `
+                    <td class="px-4 py-3 text-center text-sm font-semibold text-gray-400">${index + 1}</td>
+                    <td class="px-6 py-3 font-medium text-gray-800">${item.desc}</td>
+                    <td class="px-6 py-3">
+                        <div class="flex flex-col items-end">
+                            <span class="font-bold text-gray-900">${item.qty.toLocaleString()}</span>
+                            <div class="w-full bg-gray-100 rounded-full h-1.5 mt-1.5 flex justify-end overflow-hidden">
+                                <div class="h-1.5 rounded-full transition-all duration-1000 ease-out" style="width: ${percent}%; background-color: ${barColor};"></div>
+                            </div>
+                        </div>
+                    </td>
+                `;
+                body.appendChild(row);
+            });
+        }
+
+        // --- Styled Excel Export Logic ---
+        exportReportBtn.addEventListener('click', () => {
+            if (globalRawData.length === 0) return;
+
+            try {
+                const wb = XLSX.utils.book_new();
+                const dateStr = new Date().toLocaleDateString('en-GB');
+
+                // Common Styles
+                const BORDER_STYLE = {
+                    top: { style: "thin", color: { rgb: "000000" } },
+                    bottom: { style: "thin", color: { rgb: "000000" } },
+                    left: { style: "thin", color: { rgb: "000000" } },
+                    right: { style: "thin", color: { rgb: "000000" } }
+                };
+
+                const HEADER_STYLE = {
+                    font: { bold: true, sz: 12 },
+                    fill: { fgColor: { rgb: "FFC000" } }, // Orange-yellow like the picture
+                    alignment: { horizontal: "center", vertical: "center" },
+                    border: BORDER_STYLE
+                };
+
+                const TITLE_STYLE = {
+                    font: { bold: true, sz: 16 },
+                    alignment: { horizontal: "left" }
+                };
+
+                const CELL_STYLE = {
+                    border: BORDER_STYLE,
+                    alignment: { horizontal: "center" }
+                };
+
+                const CELL_STYLE_TEXT = {
+                    border: BORDER_STYLE,
+                    alignment: { horizontal: "left" }
+                };
+
+                const CELL_STYLE_TOTAL = {
+                    font: { bold: true },
+                    fill: { fgColor: { rgb: "FFF2CC" } }, // Light yellow for totals
+                    border: BORDER_STYLE,
+                    alignment: { horizontal: "center" }
+                };
+
+                function buildSheet(sheetName, branches, titleText) {
+                    const itemsMap = {};
+                    const allBranches = branches === 'ALL' ? [...ZONES.A, ...ZONES.B] : branches;
+
+                    globalRawData.forEach(row => {
+                        let rawBranch = (row['To'] || '').toString().trim().toUpperCase();
+                        let qty = parseFloat(row['Qty']) || 0;
+                        let codeRaw = row['ItemCode'] || '';
+                        let desc = row['ItemDesc'] || '';
+
+                        if (!codeRaw || qty === 0) return;
+
+                        let itemCode = codeRaw.toString();
+                        if (itemCode.includes('-')) itemCode = itemCode.split('-')[1];
+
+                        let branchCode = null;
+                        for (const [key, code] of Object.entries(ZONE_MAPPING)) {
+                            if (rawBranch.includes(key)) {
+                                branchCode = code;
+                                break;
+                            }
+                        }
+
+                        if (branchCode && (branches === 'ALL' || branches.includes(branchCode))) {
+                            if (!itemsMap[itemCode]) {
+                                itemsMap[itemCode] = { desc: desc, branches: {}, total: 0 };
+                                allBranches.forEach(b => itemsMap[itemCode].branches[b] = 0);
+                            }
+                            itemsMap[itemCode].branches[branchCode] += qty;
+                            itemsMap[itemCode].total += qty;
+                        }
+                    });
+
+                    const wsData = [];
+
+                    // Titles
+                    wsData.push([{ v: titleText, s: TITLE_STYLE }]);
+                    wsData.push([{ v: dateStr, s: { font: { sz: 10 } } }]);
+                    wsData.push([]);
+
+                    // Headers
+                    let headersRow = [
+                        { v: 'ลำดับ', s: HEADER_STYLE },
+                        { v: 'รายการ', s: HEADER_STYLE },
+                        { v: 'รหัสสินค้า', s: HEADER_STYLE }
+                    ];
+
+                    if (branches === 'ALL') {
+                        headersRow.push({ v: 'รวมทั้งหมด', s: HEADER_STYLE });
+                    } else {
+                        allBranches.forEach(b => headersRow.push({ v: b, s: HEADER_STYLE }));
+                        headersRow.push({ v: `รวม ${sheetName.replace('Zone ', '')}`, s: HEADER_STYLE });
+                    }
+                    wsData.push(headersRow);
+
+                    // Data Rows
+                    const sortedCodes = Object.keys(itemsMap).sort();
+                    let index = 1;
+
+                    sortedCodes.forEach(code => {
+                        const item = itemsMap[code];
+                        const row = [
+                            { v: index++, s: CELL_STYLE },
+                            { v: item.desc, s: CELL_STYLE_TEXT },
+                            { v: code, s: CELL_STYLE }
+                        ];
+
+                        if (branches !== 'ALL') {
+                            allBranches.forEach(b => {
+                                let val = item.branches[b];
+                                row.push({ v: val === 0 ? '-' : val.toFixed(2), s: CELL_STYLE });
+                            });
+                        }
+
+                        row.push({ v: item.total.toFixed(2), s: CELL_STYLE_TOTAL });
+                        wsData.push(row);
+                    });
+
+                    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+                    // Column Widths
+                    const cols = [{ wch: 5 }, { wch: 25 }, { wch: 12 }];
+                    if (branches === 'ALL') {
+                        cols.push({ wch: 15 });
+                    } else {
+                        allBranches.forEach(() => cols.push({ wch: 8 }));
+                        cols.push({ wch: 10 });
+                    }
+                    ws['!cols'] = cols;
+
+                    return ws;
+                }
+
+                // Generate Sheets
+                XLSX.utils.book_append_sheet(wb, buildSheet('Zone A', ZONES.A, `แบบฟอร์มใบสั่ง/ส่งของเข้าสาขารายวัน (QQ Dessert) โซน A`), "Zone A");
+                XLSX.utils.book_append_sheet(wb, buildSheet('Zone B', ZONES.B, `แบบฟอร์มใบสั่ง/ส่งของเข้าสาขารายวัน (QQ Dessert) โซน B`), "Zone B");
+                XLSX.utils.book_append_sheet(wb, buildSheet('Grand Total', 'ALL', `แบบฟอร์มใบสั่ง/ส่งของเข้าสาขารายวัน (QQ Dessert) รวมทุกสาขา`), "Grand Total");
+
+                XLSX.writeFile(wb, `QQ_Dessert_Order_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+                showToast('Report exported successfully!', 'success');
+            } catch (error) {
+                console.error(error);
+                showToast('Export failed: ' + error.message, 'error');
+            }
+        });
+    </script>
+</body>
+
+</html>
